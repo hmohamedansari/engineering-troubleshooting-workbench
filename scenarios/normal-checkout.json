@@ -1,0 +1,19 @@
+{
+  "incident": {
+    "id": "INC-043",
+    "title": "Checkout observation after a routine deploy",
+    "state": "triaged"
+  },
+  "signals": {
+    "checkout_error_rate": 0.006,
+    "checkout_latency_p95_ms": 280
+  },
+  "deployment": {
+    "version": "checkout-api-2026.09.03.1",
+    "minutes_ago": 140
+  },
+  "rules": {
+    "high_error_rate": 0.05,
+    "recent_deployment_minutes": 60
+  }
+}

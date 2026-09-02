@@ -1,0 +1,19 @@
+{
+  "incident": {
+    "id": "INC-042",
+    "title": "Intermittent checkout failures after a deployment",
+    "state": "investigating"
+  },
+  "signals": {
+    "checkout_error_rate": 0.082,
+    "checkout_latency_p95_ms": 1840
+  },
+  "deployment": {
+    "version": "checkout-api-2026.09.03.2",
+    "minutes_ago": 23
+  },
+  "rules": {
+    "high_error_rate": 0.05,
+    "recent_deployment_minutes": 60
+  }
+}
