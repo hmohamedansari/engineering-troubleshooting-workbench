@@ -58,6 +58,17 @@ The `checkout-regression` scenario begins with a recent deployment and an observ
 
 You are changing a known input, not guessing at a code change. This is the first lesson's point: a visible rule should have a visible consequence.
 
+## Explore the foundation scenarios
+
+The browser view has four deliberately small scenarios. Each one corresponds to a course checkpoint:
+
+- **Checkout regression** — separate evidence from hypotheses, then change a visible threshold and inspect the route.
+- **Normal checkout** — see a calm observation recorded without inventing an incident.
+- **Delayed metric** — inspect a timeout, one bounded retry, and the successful metric read that becomes evidence.
+- **Duplicate alert** — see a second delivery suppressed with an idempotency key instead of starting duplicate work.
+
+The Workbench also exposes only valid next workflow states. A state transition and a disproved hypothesis appear in the event timeline; neither is silently rewritten.
+
 Then ask yourself:
 
 - What evidence changed?

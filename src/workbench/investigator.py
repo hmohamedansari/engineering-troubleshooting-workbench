@@ -10,18 +10,41 @@ import json
 from pathlib import Path
 from typing import Any
 
-from workbench.domain import Event, Finding, InvestigationReport
+from workbench.domain import Event, Finding, Hypothesis, InvestigationReport
 
 
 SCENARIOS_DIR = Path(__file__).resolve().parents[2] / "scenarios"
+SCENARIO_NAMES = {"checkout-regression", "normal-checkout", "delayed-metric", "duplicate-alert"}
+ALLOWED_STATE_TRANSITIONS = {
+    "new": {"triaged"},
+    "triaged": {"investigating", "closed-as-noise"},
+    "investigating": {"waiting-for-human", "resolved"},
+    "waiting-for-human": {"investigating", "resolved"},
+    "resolved": set(),
+    "closed-as-noise": set(),
+}
 
 
 def load_scenario(name: str) -> dict[str, Any]:
     """Load a named, synthetic scenario without allowing path traversal."""
-    if name not in {"checkout-regression", "normal-checkout"}:
+    if name not in SCENARIO_NAMES:
         raise ValueError(f"Unknown scenario: {name}")
     path = SCENARIOS_DIR / f"{name}.json"
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def allowed_next_states(state: str) -> list[str]:
+    """Return the only valid next states for a visible workflow state."""
+    if state not in ALLOWED_STATE_TRANSITIONS:
+        raise ValueError(f"Unknown incident state: {state}")
+    return sorted(ALLOWED_STATE_TRANSITIONS[state])
+
+
+def transition_state(current_state: str, next_state: str) -> str:
+    """Move an incident only through a permitted state transition."""
+    if next_state not in allowed_next_states(current_state):
+        raise ValueError(f"Cannot move incident from {current_state} to {next_state}")
+    return next_state
 
 
 def collect_findings(scenario: dict[str, Any]) -> list[Finding]:
@@ -31,9 +54,35 @@ def collect_findings(scenario: dict[str, Any]) -> list[Finding]:
     return [
         Finding("Checkout 5xx rate", f"{signals['checkout_error_rate']:.1%}", "checkout-api metric snapshot"),
         Finding("Latency", f"p95 {signals['checkout_latency_p95_ms']} ms", "checkout-api metric snapshot"),
+        Finding("Payment provider error rate", f"{signals['payment_provider_error_rate']:.1%}", "payment-provider health snapshot"),
         Finding("Most recent deployment", f"{deployment['minutes_ago']} minutes ago", "deployment history"),
         Finding("Deployment version", deployment["version"], "deployment history"),
     ]
+
+
+def collect_hypotheses(scenario: dict[str, Any], outcomes: dict[str, str] | None = None) -> list[Hypothesis]:
+    """Keep possible explanations distinct from evidence and selected routes."""
+    outcomes = outcomes or {}
+    allowed_statuses = {"unproven", "disproved"}
+    hypotheses: list[Hypothesis] = []
+
+    for item in scenario["hypotheses"]:
+        status = outcomes.get(item["id"], item["status"])
+        if status not in allowed_statuses:
+            raise ValueError(f"Unsupported hypothesis status: {status}")
+        if status == "disproved" and not item["disproof_evidence"]:
+            raise ValueError(f"Cannot disprove hypothesis without evidence: {item['id']}")
+        hypotheses.append(
+            Hypothesis(
+                id=item["id"],
+                statement=item["statement"],
+                status=status,
+                next_check=item["next_check"],
+                disproof_evidence=item["disproof_evidence"],
+            )
+        )
+
+    return hypotheses
 
 
 def choose_route(scenario: dict[str, Any]) -> tuple[str, str, str]:
@@ -64,24 +113,67 @@ def choose_route(scenario: dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
-def investigate(scenario: dict[str, Any]) -> InvestigationReport:
+def collect_workflow_events(scenario: dict[str, Any]) -> list[Event]:
+    """Record retries and duplicate delivery as visible workflow behaviour."""
+    events: list[Event] = []
+    workflow = scenario.get("workflow")
+    if workflow:
+        attempts = workflow["metric_snapshot_attempts"]
+        retry_budget = workflow["retry_budget"]
+        events.append(Event("workflow.started", "Started metric snapshot workflow"))
+        for index, attempt in enumerate(attempts, start=1):
+            outcome = attempt["outcome"]
+            events.append(Event("metric.snapshot.read", f"Attempt {index}: {outcome} — {attempt['detail']}"))
+            if outcome == "timeout" and index <= retry_budget:
+                events.append(Event("metric.snapshot.retry-scheduled", f"Retry {index} is within the visible budget of {retry_budget}"))
+            if outcome == "success":
+                events.append(Event("workflow.completed", "Metric snapshot read successfully"))
+
+    delivery = scenario.get("delivery")
+    if delivery and delivery["received_count"] > 1:
+        events.append(Event("alert.duplicate-suppressed", f"Ignored {delivery['received_count'] - 1} duplicate delivery using key {delivery['idempotency_key']}"))
+
+    return events
+
+
+def investigate(
+    scenario: dict[str, Any],
+    hypothesis_outcomes: dict[str, str] | None = None,
+    state_transition: tuple[str, str] | None = None,
+) -> InvestigationReport:
     """Investigate a scenario with evidence, rules, state, and an event history."""
     incident = scenario["incident"]
     findings = collect_findings(scenario)
+    hypotheses = collect_hypotheses(scenario, hypothesis_outcomes)
     route, route_reason, next_step = choose_route(scenario)
 
     events = [
         Event("incident.received", f"Received {incident['id']} in state {incident['state']}"),
         Event("evidence.collected", f"Collected {len(findings)} evidence items from local fixtures"),
+        Event("hypotheses.recorded", f"Recorded {len(hypotheses)} explanations separately from evidence"),
         Event("route.selected", route),
     ]
+    if state_transition:
+        events.append(Event("incident.state-transitioned", f"Moved from {state_transition[0]} to {state_transition[1]}"))
+    events.extend(collect_workflow_events(scenario))
+
+    for hypothesis in hypotheses:
+        if hypothesis.status == "disproved":
+            events.append(
+                Event(
+                    "hypothesis.disproved",
+                    f"Kept dead end: {hypothesis.statement} Evidence: {hypothesis.disproof_evidence}",
+                )
+            )
 
     return InvestigationReport(
         incident_id=incident["id"],
         state=incident["state"],
+        allowed_next_states=allowed_next_states(incident["state"]),
         route=route,
         route_reason=route_reason,
         next_step=next_step,
         findings=findings,
+        hypotheses=hypotheses,
         events=events,
     )

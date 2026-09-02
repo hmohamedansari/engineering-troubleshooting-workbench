@@ -14,6 +14,11 @@ def main() -> None:
     for finding in report.findings:
         print(f"- {finding.label}: {finding.value} ({finding.source})")
     print()
+    print("Hypotheses")
+    for hypothesis in report.hypotheses:
+        print(f"- [{hypothesis.status}] {hypothesis.statement}")
+        print(f"  Next check: {hypothesis.next_check}")
+    print()
     print(f"Route: {report.route}")
     print(f"Why: {report.route_reason}")
     print(f"Next safe action: {report.next_step}")

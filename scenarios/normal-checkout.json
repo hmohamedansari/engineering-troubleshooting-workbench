@@ -6,7 +6,8 @@
   },
   "signals": {
     "checkout_error_rate": 0.006,
-    "checkout_latency_p95_ms": 280
+    "checkout_latency_p95_ms": 280,
+    "payment_provider_error_rate": 0.0
   },
   "deployment": {
     "version": "checkout-api-2026.09.03.1",
@@ -15,5 +16,14 @@
   "rules": {
     "high_error_rate": 0.05,
     "recent_deployment_minutes": 60
-  }
+  },
+  "hypotheses": [
+    {
+      "id": "checkout-issue-present",
+      "statement": "Checkout currently has a customer-impacting failure.",
+      "status": "disproved",
+      "next_check": "Continue normal monitoring and wait for new evidence before opening an investigation.",
+      "disproof_evidence": "The checkout metric snapshot recorded 0.6% errors and normal latency."
+    }
+  ]
 }

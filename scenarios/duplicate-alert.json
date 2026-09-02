@@ -1,8 +1,8 @@
 {
   "incident": {
-    "id": "INC-042",
-    "title": "Intermittent checkout failures after a deployment",
-    "state": "investigating"
+    "id": "INC-045",
+    "title": "Duplicate checkout alert delivery",
+    "state": "new"
   },
   "signals": {
     "checkout_error_rate": 0.082,
@@ -24,13 +24,11 @@
       "status": "unproven",
       "next_check": "Compare checkout validation and error logs before and after the deployment.",
       "disproof_evidence": ""
-    },
-    {
-      "id": "payment-provider-failure",
-      "statement": "The payment provider may be failing.",
-      "status": "unproven",
-      "next_check": "Review the payment-provider health snapshot from the same time window.",
-      "disproof_evidence": "The payment-provider health snapshot recorded 0.0% errors in the same time window."
     }
-  ]
+  ],
+  "delivery": {
+    "alert_id": "checkout-5xx-2026-09-03T10:04Z",
+    "received_count": 2,
+    "idempotency_key": "alert:checkout-5xx-2026-09-03T10:04Z"
+  }
 }

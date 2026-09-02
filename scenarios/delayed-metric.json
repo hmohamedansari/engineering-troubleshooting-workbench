@@ -1,8 +1,8 @@
 {
   "incident": {
-    "id": "INC-042",
-    "title": "Intermittent checkout failures after a deployment",
-    "state": "investigating"
+    "id": "INC-044",
+    "title": "Checkout alert with a delayed metric snapshot",
+    "state": "triaged"
   },
   "signals": {
     "checkout_error_rate": 0.082,
@@ -24,13 +24,19 @@
       "status": "unproven",
       "next_check": "Compare checkout validation and error logs before and after the deployment.",
       "disproof_evidence": ""
-    },
-    {
-      "id": "payment-provider-failure",
-      "statement": "The payment provider may be failing.",
-      "status": "unproven",
-      "next_check": "Review the payment-provider health snapshot from the same time window.",
-      "disproof_evidence": "The payment-provider health snapshot recorded 0.0% errors in the same time window."
     }
-  ]
+  ],
+  "workflow": {
+    "retry_budget": 1,
+    "metric_snapshot_attempts": [
+      {
+        "outcome": "timeout",
+        "detail": "The first metric request exceeded its 2-second timeout."
+      },
+      {
+        "outcome": "success",
+        "detail": "The retry returned the metric snapshot used in this report."
+      }
+    ]
+  }
 }
