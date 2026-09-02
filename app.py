@@ -56,6 +56,7 @@ with left:
 with right:
     st.subheader("Investigation state")
     st.metric("Current state", report.state.replace("-", " ").title())
+    st.caption("State is the durable record of where this investigation is in its lifecycle. It tells the next step what has already happened and what may happen next.")
     st.caption("A deterministic route can still say “ask a human” when the evidence does not support a safe conclusion.")
 
     st.subheader("Event timeline")
