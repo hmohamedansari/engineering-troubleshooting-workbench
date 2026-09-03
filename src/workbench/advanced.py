@@ -11,19 +11,15 @@ import json
 import os
 import re
 import sqlite3
+import urllib.error
+import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol
 
-from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
-from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
-
 from workbench.domain import InvestigationReport
 from workbench.investigator import investigate
+from workbench.telemetry import metric_snapshot, trace_decision
 
 
 @dataclass(frozen=True)
@@ -101,17 +97,79 @@ class FixtureProposalProvider:
 
 
 class GroqProposalProvider:
-    """An opt-in adapter. It fails closed when a learner has not configured a key."""
+    """An opt-in proposal writer using Groq's OpenAI-compatible API."""
 
     name = "groq"
 
+    endpoint = "https://api.groq.com/openai/v1/chat/completions"
+    default_model = "openai/gpt-oss-20b"
+
+    def __init__(self, api_key: str | None = None, model: str | None = None, opener=urllib.request.urlopen) -> None:
+        self.api_key = api_key or os.getenv("GROQ_API_KEY")
+        self.model = model or os.getenv("GROQ_MODEL") or self.default_model
+        self._opener = opener
+
     def propose(self, context: ContextPacket) -> ModelProposal:
-        # Deliberately do not make a network call from the learning baseline.  A
-        # configured provider remains an explicit extension point, not a hidden
-        # prerequisite for any checkpoint.
-        if not os.getenv("GROQ_API_KEY"):
+        if not self.api_key:
             raise RuntimeError("GROQ_API_KEY is not configured; use the local fixture provider instead.")
-        raise RuntimeError("The optional Groq adapter is intentionally disabled until its request contract is reviewed.")
+
+        schema = {
+            "name": "workbench_proposal",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string"},
+                    "next_question": {"type": "string"},
+                    "cited_sources": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["summary", "next_question", "cited_sources"],
+                "additionalProperties": False,
+            },
+        }
+        payload = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "Write one grounded incident-summary proposal. Use only the evidence source labels supplied. Do not propose actions.",
+                },
+                {"role": "user", "content": context.rendered},
+            ],
+            "response_format": {"type": "json_schema", "json_schema": schema},
+            "temperature": 0,
+        }
+        request = urllib.request.Request(
+            self.endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with self._opener(request, timeout=20) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError) as error:
+            raise RuntimeError("Groq could not produce a proposal; no decision or tool action was taken.") from error
+
+        try:
+            content = body["choices"][0]["message"]["content"]
+            proposal = json.loads(content)
+            if (
+                not isinstance(proposal, dict)
+                or not isinstance(proposal.get("summary"), str)
+                or not isinstance(proposal.get("next_question"), str)
+                or not isinstance(proposal.get("cited_sources"), list)
+                or not all(isinstance(source, str) for source in proposal["cited_sources"])
+            ):
+                raise ValueError("The response did not match the proposal schema.")
+            return ModelProposal(
+                summary=proposal["summary"],
+                next_question=proposal["next_question"],
+                cited_sources=list(proposal["cited_sources"]),
+                provider=self.name,
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise RuntimeError("Groq returned an unusable proposal; no decision or tool action was taken.") from error
 
 
 def build_context(report: InvestigationReport, character_budget: int = 900) -> ContextPacket:
@@ -207,6 +265,24 @@ class InvestigationStore:
         self.connection.close()
 
 
+def default_state_path() -> Path:
+    """Return the explicit writable location for synthetic durable state."""
+    directory = Path(os.getenv("WORKBENCH_STATE_DIR", ".workbench-data"))
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory / "workbench.sqlite3"
+
+
+def persist_report(report: InvestigationReport) -> Path:
+    """Persist one synthetic report so durable state is visible and inspectable."""
+    path = default_state_path()
+    store = InvestigationStore(path)
+    try:
+        store.save(report)
+    finally:
+        store.close()
+    return path
+
+
 def redact_for_telemetry(value: str) -> str:
     """Remove common secret-like values before a value reaches telemetry."""
     value = re.sub(r"(?i)(api[_-]?key|token|password)\s*[=:]\s*\S+", r"\1=[REDACTED]", value)
@@ -218,33 +294,3 @@ def reject_untrusted_instruction(value: str) -> PolicyDecision:
     if any(signal in value.lower() for signal in signals):
         return PolicyDecision("deny", "Untrusted input cannot change tool policy or instructions.", False)
     return PolicyDecision("allow", "Treat the content as data, not an instruction.", False)
-
-
-def trace_decision(incident_id: str) -> tuple[dict[str, str], list[str]]:
-    """Create real OTel spans and propagate W3C trace-context through a carrier."""
-    exporter = InMemorySpanExporter()
-    provider = TracerProvider()
-    provider.add_span_processor(SimpleSpanProcessor(exporter))
-    tracer = provider.get_tracer("workbench")
-    carrier: dict[str, str] = {}
-    with tracer.start_as_current_span("workbench.investigation"):
-        with tracer.start_as_current_span("workbench.context-selection"):
-            pass
-        TraceContextTextMapPropagator().inject(carrier)
-        remote_context = TraceContextTextMapPropagator().extract(carrier)
-        with tracer.start_as_current_span("workbench.policy", context=remote_context):
-            pass
-    provider.force_flush()
-    return carrier, [span.name for span in exporter.get_finished_spans()]
-
-
-def metric_snapshot(route: str, duration_seconds: float, active_investigations: int = 1) -> str:
-    """Return Prometheus exposition text for golden signals, without a backend."""
-    registry = CollectorRegistry()
-    requests = Counter("workbench_investigations_total", "Synthetic investigations", ["route"], registry=registry)
-    duration = Histogram("workbench_investigation_duration_seconds", "Synthetic investigation duration", registry=registry)
-    active = Gauge("workbench_active_investigations", "Synthetic active investigations", registry=registry)
-    requests.labels(route=route).inc()
-    duration.observe(duration_seconds)
-    active.set(active_investigations)
-    return generate_latest(registry).decode("utf-8")

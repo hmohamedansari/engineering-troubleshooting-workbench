@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import streamlit as st
 
-from workbench.advanced import metric_snapshot, run_bounded_investigation, trace_decision
+from workbench.advanced import persist_report, run_bounded_investigation
 from workbench.investigator import investigate, load_scenario, transition_state
+from workbench.telemetry import metric_snapshot, start_metrics_server, trace_decision
 
 
 st.set_page_config(page_title="Engineering Troubleshooting Workbench", page_icon="🧭", layout="wide")
+start_metrics_server()
 
 st.title("Engineering Troubleshooting Workbench")
 st.caption("Foundation checkpoint: deterministic investigation, local scenarios, no model required.")
@@ -56,6 +58,7 @@ report = investigate(
     st.session_state[outcome_key],
     st.session_state.get(transition_key),
 )
+state_path = persist_report(report)
 
 left, right = st.columns([1.1, 0.9])
 
@@ -118,6 +121,7 @@ with foundation_tab:
         "The Workbench can collect evidence, keep explanations separate from facts, apply visible rules, respect workflow state and explain its route. "
         "The next journey puts a model inside this shape; it does not replace the shape."
     )
+    st.caption(f"Synthetic durable state is stored locally at `{state_path}`. In the container lab, this moves to a writable temporary volume.")
 
 with advanced_tab:
     st.subheader("One bounded proposal cycle")
@@ -135,3 +139,4 @@ with production_tab:
     st.code(str(carrier), language="text")
     st.write("**Finished spans:** " + ", ".join(spans))
     st.code(metric_snapshot(report.route, duration_seconds=0.05), language="text")
+    st.caption("Prometheus can scrape these same metrics at `http://localhost:9100/metrics` while the Workbench is running.")

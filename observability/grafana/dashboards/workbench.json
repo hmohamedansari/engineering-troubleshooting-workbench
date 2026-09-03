@@ -1,16 +1,39 @@
 {
   "title": "Engineering Troubleshooting Workbench",
+  "uid": "workbench-local",
   "schemaVersion": 41,
-  "version": 1,
+  "version": 2,
+  "refresh": "10s",
+  "time": {"from": "now-15m", "to": "now"},
   "panels": [
     {
+      "type": "timeseries",
+      "title": "Investigations by route",
+      "datasource": "Workbench Prometheus",
+      "targets": [{"expr": "sum by (route) (rate(workbench_investigations_total[5m]))", "legendFormat": "{{route}}"}],
+      "fieldConfig": {"defaults": {"unit": "ops"}},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Investigation duration (p95)",
+      "datasource": "Workbench Prometheus",
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, route) (rate(workbench_investigation_duration_seconds_bucket[5m])))", "legendFormat": "{{route}}"}],
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+    },
+    {
+      "type": "stat",
+      "title": "Active synthetic investigations",
+      "datasource": "Workbench Prometheus",
+      "targets": [{"expr": "workbench_active_investigations", "legendFormat": "active"}],
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 8}
+    },
+    {
       "type": "text",
-      "title": "Learning dashboard",
-      "options": {
-        "mode": "markdown",
-        "content": "Start with request rate, duration and active investigations. Add a real metrics endpoint before treating this as an operations dashboard."
-      },
-      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 0}
+      "title": "What this lab proves",
+      "options": {"mode": "markdown", "content": "The Workbench exposes a real Prometheus endpoint. Its trace spans travel through the OpenTelemetry Collector to Tempo. These synthetic signals are learning evidence, not a production SLO."},
+      "gridPos": {"h": 6, "w": 16, "x": 8, "y": 8}
     }
   ]
 }

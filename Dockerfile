@@ -12,5 +12,5 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
 RUN useradd --create-home --uid 10001 workbench
 USER workbench
 
-EXPOSE 8501
+EXPOSE 8501 9100
 CMD ["python", "-m", "streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.port=8501"]

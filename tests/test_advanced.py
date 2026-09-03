@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from starlette.testclient import TestClient
@@ -5,6 +6,7 @@ from starlette.testclient import TestClient
 from workbench.a2a import create_review_app, review_agent_card_document
 from workbench.advanced import (
     FixtureProposalProvider,
+    GroqProposalProvider,
     InvestigationStore,
     ToolProposal,
     build_context,
@@ -17,6 +19,40 @@ from workbench.advanced import (
 )
 from workbench.investigator import investigate, load_scenario
 from workbench.mcp_server import create_server
+
+
+class FakeGroqResponse:
+    def __init__(self, payload: dict) -> None:
+        self.payload = payload
+
+    def __enter__(self) -> "FakeGroqResponse":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return json.dumps(self.payload).encode("utf-8")
+
+
+def groq_response(proposal: dict) -> dict:
+    return {"choices": [{"message": {"content": json.dumps(proposal)}}]}
+
+
+def a2a_request_payload(evidence_sources: list[str]) -> dict:
+    return {
+        "jsonrpc": "2.0",
+        "id": "test-request",
+        "method": "SendMessage",
+        "params": {
+            "message": {
+                "messageId": "test-message",
+                "role": "ROLE_USER",
+                "parts": [{"text": json.dumps({"scenario": "checkout-regression", "evidence_sources": evidence_sources})}],
+            },
+            "configuration": {},
+        },
+    }
 
 
 def test_bounded_run_uses_local_provider_and_stops_for_a_human() -> None:
@@ -35,6 +71,47 @@ def test_context_budget_records_excluded_sources() -> None:
     assert packet.items
     assert packet.excluded_sources
     assert len(packet.rendered) > 0
+
+
+def test_groq_provider_uses_strict_json_and_returns_a_proposal() -> None:
+    captured: dict = {}
+
+    def opener(request, timeout: int):
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        captured["authorization"] = request.get_header("Authorization")
+        captured["timeout"] = timeout
+        return FakeGroqResponse(groq_response({
+            "summary": "Use the deployment evidence before assigning cause.",
+            "next_question": "Which validation changed?",
+            "cited_sources": ["checkout-api metric snapshot"],
+        }))
+
+    packet = build_context(investigate(load_scenario("checkout-regression")))
+    proposal = GroqProposalProvider(api_key="test-key", opener=opener).propose(packet)
+
+    assert proposal.provider == "groq"
+    assert proposal.cited_sources == ["checkout-api metric snapshot"]
+    assert captured["authorization"] == "Bearer test-key"
+    assert captured["timeout"] == 20
+    assert captured["payload"]["response_format"]["json_schema"]["strict"] is True
+
+
+def test_groq_provider_rejects_an_invalid_structured_response() -> None:
+    provider = GroqProposalProvider(
+        api_key="test-key",
+        opener=lambda *_args, **_kwargs: FakeGroqResponse(groq_response({
+            "summary": "This is missing the required fields.",
+            "cited_sources": "not a list",
+        })),
+    )
+    packet = build_context(investigate(load_scenario("checkout-regression")))
+
+    try:
+        provider.propose(packet)
+    except RuntimeError as error:
+        assert "unusable proposal" in str(error)
+    else:
+        raise AssertionError("An invalid provider response must stop the bounded run.")
 
 
 def test_policy_allows_read_only_and_requires_human_for_effects() -> None:
@@ -96,3 +173,30 @@ def test_a2a_agent_card_is_served_by_the_sdk_route() -> None:
     assert response.status_code == 200
     assert response.json()["name"] == "Workbench Evidence Reviewer"
     assert response.json()["skills"][0]["id"] == "evidence-review"
+
+
+def test_a2a_evidence_review_returns_a_completed_task_and_artifact() -> None:
+    with TestClient(create_review_app()) as client:
+        response = client.post(
+            "/",
+            json=a2a_request_payload(["checkout-api metric snapshot", "deployment history"]),
+            headers={"A2A-Version": "1.0"},
+        )
+
+    assert response.status_code == 200
+    task = response.json()["result"]["task"]
+    assert task["status"]["state"] == "TASK_STATE_COMPLETED"
+    assert task["artifacts"][0]["name"] == "Synthetic evidence review"
+    assert task["artifacts"][0]["parts"][0]["data"]["verdict"] == "accepted"
+
+
+def test_a2a_evidence_review_rejects_unapproved_evidence() -> None:
+    with TestClient(create_review_app()) as client:
+        response = client.post(
+            "/",
+            json=a2a_request_payload(["customer database export"]),
+            headers={"A2A-Version": "1.0"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["result"]["task"]["status"]["state"] == "TASK_STATE_REJECTED"

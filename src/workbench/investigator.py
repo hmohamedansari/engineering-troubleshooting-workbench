@@ -13,7 +13,26 @@ from typing import Any
 from workbench.domain import Event, Finding, Hypothesis, InvestigationReport
 
 
-SCENARIOS_DIR = Path(__file__).resolve().parents[2] / "scenarios"
+def _scenario_directory() -> Path:
+    """Find the checked-in fixture directory in source and container installs.
+
+    The learning repository keeps scenarios beside ``src`` so learners can open
+    and edit them directly.  A regular package installation, however, puts this
+    module under site-packages while Docker intentionally keeps the fixtures at
+    ``/app/scenarios``.  Resolve the working-copy/container location first and
+    retain the source-tree location for local test runs.
+    """
+    candidates = (
+        Path.cwd() / "scenarios",
+        Path(__file__).resolve().parents[2] / "scenarios",
+    )
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    raise FileNotFoundError("Could not find the Workbench's checked-in scenarios directory.")
+
+
+SCENARIOS_DIR = _scenario_directory()
 SCENARIO_NAMES = {"checkout-regression", "normal-checkout", "delayed-metric", "duplicate-alert"}
 ALLOWED_STATE_TRANSITIONS = {
     "new": {"triaged"},

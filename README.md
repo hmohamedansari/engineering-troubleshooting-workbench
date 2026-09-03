@@ -2,7 +2,7 @@
 
 The Workbench is the companion application for [AI Explained](https://ai.hmohamedansari.com). Start with the [Automation to Agents learning journey](https://ai.hmohamedansari.com/learn/automation-to-agents/) to understand why each checkpoint exists, then return here to run it.
 
-It starts as an ordinary Python incident investigator. You give it a synthetic incident, it collects known evidence, applies explicit rules, and explains the route it selected. The later checkpoints add a bounded local proposal cycle, durable SQLite state, a read-only MCP tool, an A2A Agent Card, OpenTelemetry trace context and Prometheus-format metrics.
+It starts as an ordinary Python incident investigator. You give it a synthetic incident, it collects known evidence, applies explicit rules, and explains the route it selected. The later checkpoints add a bounded local proposal cycle, durable SQLite state, a read-only MCP tool, a task-capable A2A evidence reviewer, OpenTelemetry trace context and a Prometheus endpoint.
 
 There is no production infrastructure here. No Kubernetes cluster, cloud account or real customer data is required.
 
@@ -92,13 +92,15 @@ The normal `workbench` command remains the deterministic foundation. The later c
 workbench advanced
 workbench production
 workbench mcp
-workbench a2a
+workbench a2a-server
 ```
 
-- `advanced` uses a deterministic fixture provider by default, shows the selected context, validates the proposal, then stops at human approval. A Groq key is optional and never required for the course.
-- `production` prints a W3C `traceparent` carrier, finished OpenTelemetry spans and Prometheus-format request, duration and active-work metrics. A correlation ID can help logs, but it is not a substitute for trace propagation.
+- `advanced` uses a deterministic fixture provider by default, shows the selected context, validates the proposal, then stops at human approval. A Groq key is optional and never required for the course. If you have deliberately configured one, run `workbench advanced --provider groq`. The provider returns a strict JSON proposal; it never receives authority to call a tool.
+- `production` prints a W3C `traceparent` carrier, finished OpenTelemetry spans and Prometheus-format request, duration and active-work metrics. A correlation ID can help logs, but it is not a substitute for trace propagation. In the Streamlit view, Prometheus can scrape the same data from `http://localhost:9100/metrics`.
 - `mcp` lists the one official SDK-registered evidence tool. It is read-only and points only at synthetic scenarios.
-- `a2a` prints the official SDK Agent Card for the evidence-review boundary. Run `workbench a2a-server` to serve it locally at `http://127.0.0.1:8011/.well-known/agent-card.json`.
+- `a2a-server` serves the official SDK Agent Card at `http://127.0.0.1:8011/.well-known/agent-card.json` and handles one bounded evidence-review task. In a second terminal, run `workbench a2a-review`. The SDK client discovers the peer, sends only named synthetic evidence and receives a completed artifact. Unknown evidence is rejected; the peer cannot deploy, notify, read secrets or contact another system.
+
+The normal `workbench` command writes the synthetic report to `.workbench-data/workbench.sqlite3`. This visible SQLite file is the local durable state; it is not hidden conversation memory.
 
 The browser view has matching Foundation, Bounded harness and Production signals tabs.
 
@@ -111,7 +113,9 @@ docker compose config --quiet
 docker compose up --build
 ```
 
-It exposes the Workbench on port 8501, an OpenTelemetry Collector on 4318, Prometheus on 9090 and Grafana on 3000. The hardened `k8s/workbench.yaml` uses the local image name deliberately; it is a learning manifest, not a claim that this repository is ready for a real cluster.
+It exposes the Workbench on port 8501, its Prometheus metrics on 9100, an OpenTelemetry Collector on 4318, Tempo on 3200, Prometheus on 9090 and Grafana on 3000. The Collector sends trace spans to Tempo; Grafana provisions both Tempo and Prometheus data sources plus a small decision-oriented dashboard. Open the Workbench, change a visible rule, then inspect the dashboard at `http://localhost:3000`.
+
+The hardened `k8s/workbench.yaml` uses the local image name deliberately. It includes non-root execution, a read-only filesystem, a writable temporary volume, resource limits and Streamlit health probes. It is a learning manifest, not a claim that this repository is ready for a real cluster.
 
 ## Optional: OpenCode as a reading companion
 

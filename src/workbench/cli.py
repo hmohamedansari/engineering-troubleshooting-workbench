@@ -5,20 +5,27 @@ from __future__ import annotations
 import argparse
 import json
 
-from workbench.advanced import metric_snapshot, run_bounded_investigation, trace_decision
+from workbench.advanced import FixtureProposalProvider, GroqProposalProvider, persist_report, run_bounded_investigation
 from workbench.investigator import investigate, load_scenario
 from workbench.mcp_server import create_server
-from workbench.a2a import review_agent_card_document
+from workbench.a2a import review_agent_card_document, run_evidence_review_client
+from workbench.telemetry import metric_snapshot, trace_decision
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run a local Engineering Troubleshooting Workbench checkpoint.")
-    parser.add_argument("checkpoint", nargs="?", choices=["foundation", "advanced", "production", "mcp", "a2a", "a2a-server"], default="foundation")
+    parser.add_argument("checkpoint", nargs="?", choices=["foundation", "advanced", "production", "mcp", "a2a", "a2a-server", "a2a-review"], default="foundation")
     parser.add_argument("--scenario", default="checkout-regression")
+    parser.add_argument("--provider", choices=["fixture", "groq"], default="fixture", help="Proposal writer for the bounded advanced checkpoint. The default is local and deterministic.")
+    parser.add_argument("--a2a-url", default="http://127.0.0.1:8011", help="Local A2A evidence-review server URL.")
     args = parser.parse_args()
 
     if args.checkpoint == "advanced":
-        run = run_bounded_investigation(load_scenario(args.scenario))
+        provider = FixtureProposalProvider() if args.provider == "fixture" else GroqProposalProvider()
+        try:
+            run = run_bounded_investigation(load_scenario(args.scenario), provider=provider)
+        except RuntimeError as error:
+            parser.exit(2, f"Workbench stopped safely: {error}\n")
         print(f"Provider: {run.proposal.provider}")
         print(f"Context budget: {run.context.character_budget} characters")
         print(f"Proposal: {run.proposal.summary}")
@@ -50,8 +57,12 @@ def main() -> None:
 
         uvicorn.run(create_review_app(), host="127.0.0.1", port=8011)
         return
+    if args.checkpoint == "a2a-review":
+        print(json.dumps(run_evidence_review_client(args.a2a_url, args.scenario), indent=2, sort_keys=True))
+        return
 
     report = investigate(load_scenario(args.scenario))
+    persist_report(report)
     print(f"Incident: {report.incident_id}")
     print(f"State: {report.state}")
     print()

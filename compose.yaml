@@ -3,11 +3,22 @@ services:
     build: .
     ports:
       - "8501:8501"
+      - "9100:9100"
+    environment:
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+      WORKBENCH_STATE_DIR: /tmp/workbench-state
     read_only: true
     tmpfs:
       - /tmp
     security_opt:
       - no-new-privileges:true
+    depends_on:
+      - otel-collector
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.139.0
@@ -16,6 +27,14 @@ services:
       - ./observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
     ports:
       - "4318:4318"
+
+  tempo:
+    image: grafana/tempo:2.7.2
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo.yaml:ro
+    ports:
+      - "3200:3200"
 
   prometheus:
     image: prom/prometheus:v3.7.3

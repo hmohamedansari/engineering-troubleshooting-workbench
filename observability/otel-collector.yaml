@@ -10,10 +10,12 @@ processors:
 exporters:
   debug:
     verbosity: basic
+  otlphttp/tempo:
+    endpoint: http://tempo:4318
 
 service:
   pipelines:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [debug]
+      exporters: [debug, otlphttp/tempo]
