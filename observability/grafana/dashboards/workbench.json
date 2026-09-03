@@ -1,0 +1,16 @@
+{
+  "title": "Engineering Troubleshooting Workbench",
+  "schemaVersion": 41,
+  "version": 1,
+  "panels": [
+    {
+      "type": "text",
+      "title": "Learning dashboard",
+      "options": {
+        "mode": "markdown",
+        "content": "Start with request rate, duration and active investigations. Add a real metrics endpoint before treating this as an operations dashboard."
+      },
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 0}
+    }
+  ]
+}

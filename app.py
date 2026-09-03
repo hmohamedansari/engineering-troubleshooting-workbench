@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from workbench.advanced import metric_snapshot, run_bounded_investigation, trace_decision
 from workbench.investigator import investigate, load_scenario, transition_state
 
 
@@ -109,8 +110,28 @@ with right:
         st.markdown(f"`{event.kind}` — {event.message}")
 
 st.divider()
-st.subheader("What this checkpoint proves")
-st.write(
-    "The Workbench can collect evidence, keep explanations separate from facts, apply visible rules, respect workflow state and explain its route. "
-    "The next journey will put a model inside this shape; it will not replace the shape."
-)
+foundation_tab, advanced_tab, production_tab = st.tabs(["Foundation", "Bounded harness", "Production signals"])
+
+with foundation_tab:
+    st.subheader("What this checkpoint proves")
+    st.write(
+        "The Workbench can collect evidence, keep explanations separate from facts, apply visible rules, respect workflow state and explain its route. "
+        "The next journey puts a model inside this shape; it does not replace the shape."
+    )
+
+with advanced_tab:
+    st.subheader("One bounded proposal cycle")
+    run = run_bounded_investigation(scenario)
+    st.caption("The default provider is a local deterministic fixture. A configured model is optional and never receives authority.")
+    st.code(run.context.rendered, language="text")
+    st.write(f"**Proposal:** {run.proposal.summary}")
+    st.write(f"**Policy:** `{run.policy.outcome}` — {run.policy.reason}")
+    st.info(run.stop_reason)
+
+with production_tab:
+    st.subheader("Trace context and Golden Signal-shaped metrics")
+    carrier, spans = trace_decision(report.incident_id)
+    st.caption("The carrier uses the W3C `traceparent` header. A correlation ID may still help logs, but it is not a substitute for trace propagation.")
+    st.code(str(carrier), language="text")
+    st.write("**Finished spans:** " + ", ".join(spans))
+    st.code(metric_snapshot(report.route, duration_seconds=0.05), language="text")

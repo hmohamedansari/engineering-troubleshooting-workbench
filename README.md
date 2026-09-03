@@ -2,7 +2,7 @@
 
 The Workbench is the companion application for [AI Explained](https://ai.hmohamedansari.com). Start with the [Automation to Agents learning journey](https://ai.hmohamedansari.com/learn/automation-to-agents/) to understand why each checkpoint exists, then return here to run it.
 
-It starts as an ordinary Python incident investigator. You give it a synthetic incident, it collects known evidence, applies explicit rules, and explains the route it selected. Later lessons will add a model, context, retrieval, tools and a bounded control loop.
+It starts as an ordinary Python incident investigator. You give it a synthetic incident, it collects known evidence, applies explicit rules, and explains the route it selected. The later checkpoints add a bounded local proposal cycle, durable SQLite state, a read-only MCP tool, an A2A Agent Card, OpenTelemetry trace context and Prometheus-format metrics.
 
 There is no production infrastructure here. No Kubernetes cluster, cloud account or real customer data is required.
 
@@ -23,8 +23,8 @@ Clone the repository, then create a virtual environment in the project folder.
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
+python3 -m pip install --upgrade pip
+python3 -m pip install -e ".[dev]"
 ```
 
 ### Windows PowerShell
@@ -47,7 +47,7 @@ workbench
 To inspect the same investigation in a local browser:
 
 ```bash
-python -m streamlit run app.py
+python3 -m streamlit run app.py
 ```
 
 Streamlit opens a local URL, normally `http://localhost:8501`. Docker is intentionally not required.
@@ -83,6 +83,35 @@ pytest
 ```
 
 The tests protect the rules before we add a model. That matters: later capabilities should make the Workbench more useful without making its behaviour impossible to explain.
+
+## Run the bounded checkpoints
+
+The normal `workbench` command remains the deterministic foundation. The later commands are local and safe by default:
+
+```bash
+workbench advanced
+workbench production
+workbench mcp
+workbench a2a
+```
+
+- `advanced` uses a deterministic fixture provider by default, shows the selected context, validates the proposal, then stops at human approval. A Groq key is optional and never required for the course.
+- `production` prints a W3C `traceparent` carrier, finished OpenTelemetry spans and Prometheus-format request, duration and active-work metrics. A correlation ID can help logs, but it is not a substitute for trace propagation.
+- `mcp` lists the one official SDK-registered evidence tool. It is read-only and points only at synthetic scenarios.
+- `a2a` prints the official SDK Agent Card for the evidence-review boundary. Run `workbench a2a-server` to serve it locally at `http://127.0.0.1:8011/.well-known/agent-card.json`.
+
+The browser view has matching Foundation, Bounded harness and Production signals tabs.
+
+## Optional: container-shaped learning route
+
+Docker is not required for the learner path. When it is installed, the pinned local observability stack can be checked and started with:
+
+```bash
+docker compose config --quiet
+docker compose up --build
+```
+
+It exposes the Workbench on port 8501, an OpenTelemetry Collector on 4318, Prometheus on 9090 and Grafana on 3000. The hardened `k8s/workbench.yaml` uses the local image name deliberately; it is a learning manifest, not a claim that this repository is ready for a real cluster.
 
 ## Optional: OpenCode as a reading companion
 
